@@ -41,9 +41,10 @@ const io = new Server(server, {
 
 // In-memory room storage
 const rooms = {};
+const activeRooms = new Set();
 
 // Allowed event names for validation
-const allowedEvents = ['start-share', 'join-view', 'offer', 'answer', 'ice', 'ice-candidate', 'stop-share', 'get-available'];
+const allowedEvents = ['start-share', 'join-view', 'offer', 'answer', 'ice', 'ice-candidate', 'stop-share', 'get-available', 'get-rooms'];
 
 // Essential logging function
 function logEvent(event, data) {
@@ -95,9 +96,10 @@ io.on('connection', (socket) => {
     socket.join(roomId);
     socket.roomId = roomId;
     socket.isHost = true;
+    activeRooms.add(roomId);
     
     logEvent('start-share', { roomId, socketId: socket.id });
-    io.to(roomId).emit('room-created', { roomId });
+    socket.emit('room-created', { roomId });
   });
   socket.on('stop-share', () => {
     const roomId = socket.roomId;
@@ -107,13 +109,17 @@ io.on('connection', (socket) => {
         try { viewer.leave(roomId); } catch (_) {}
       });
       delete rooms[roomId];
+      activeRooms.delete(roomId);
       logEvent('stop-share', { roomId });
     }
   });
 
   socket.on('get-available', () => {
-    const count = Object.keys(rooms).length;
+    const count = activeRooms.size;
     socket.emit('available-count', { count });
+  });
+  socket.on('get-rooms', () => {
+    socket.emit('available-rooms', { rooms: Array.from(activeRooms) });
   });
   socket.on('ice-candidate', (data) => {
     const validation = validateEvent('ice-candidate', data);
@@ -121,22 +127,13 @@ io.on('connection', (socket) => {
       socket.emit('error', validation.error);
       return;
     }
-    const { targetId, candidate } = data || {};
-    if (!targetId || !candidate) {
-      const roomId = socket.roomId;
-      if (roomId && candidate) {
-        socket.to(roomId).emit('ice', { candidate, fromId: socket.id });
-        logEvent('ice', { fromId: socket.id, roomId });
-      } else {
-        socket.emit('error', 'Invalid ICE payload');
-      }
+    const { roomId, candidate } = data || {};
+    if (!roomId || !candidate) {
+      socket.emit('error', 'Invalid ICE payload');
       return;
     }
-    const targetSocket = io.sockets.sockets.get(targetId);
-    if (targetSocket && targetSocket.roomId === socket.roomId) {
-      targetSocket.emit('ice', { candidate, fromId: socket.id });
-      logEvent('ice', { fromId: socket.id, targetId });
-    }
+    socket.to(roomId).emit('ice', { candidate, fromId: socket.id });
+    logEvent('ice', { fromId: socket.id, roomId });
   });
   
   // Handle join-view event - notify host
@@ -164,7 +161,7 @@ io.on('connection', (socket) => {
     socket.roomId = roomId;
     socket.isHost = false;
     
-    io.to(roomId).emit('viewer-joined', { viewerId: socket.id });
+    socket.to(roomId).emit('viewer-joined');
     logEvent('join-view', { roomId, viewerId: socket.id });
     socket.emit('view-joined', { roomId });
   });
@@ -176,22 +173,13 @@ io.on('connection', (socket) => {
       socket.emit('error', validation.error);
       return;
     }
-    const { targetId, offer } = data || {};
-    if (!targetId || !offer) {
-      const roomId = socket.roomId;
-      if (roomId && offer) {
-        socket.to(roomId).emit('offer', { offer, fromId: socket.id });
-        logEvent('offer', { fromId: socket.id, roomId });
-      } else {
-        socket.emit('error', 'Invalid offer payload');
-      }
+    const { roomId, offer } = data || {};
+    if (!roomId || !offer) {
+      socket.emit('error', 'Invalid offer payload');
       return;
     }
-    const targetSocket = io.sockets.sockets.get(targetId);
-    if (targetSocket && targetSocket.roomId === socket.roomId) {
-      targetSocket.emit('offer', { offer, fromId: socket.id });
-      logEvent('offer', { fromId: socket.id, targetId });
-    }
+    socket.to(roomId).emit('offer', { offer, fromId: socket.id });
+    logEvent('offer', { fromId: socket.id, roomId });
   });
   
   // Handle WebRTC signaling - relay answer from viewer to host
@@ -201,22 +189,13 @@ io.on('connection', (socket) => {
       socket.emit('error', validation.error);
       return;
     }
-    const { targetId, answer } = data || {};
-    if (!targetId || !answer) {
-      const roomId = socket.roomId;
-      if (roomId && answer) {
-        socket.to(roomId).emit('answer', { answer, fromId: socket.id });
-        logEvent('answer', { fromId: socket.id, roomId });
-      } else {
-        socket.emit('error', 'Invalid answer payload');
-      }
+    const { roomId, answer } = data || {};
+    if (!roomId || !answer) {
+      socket.emit('error', 'Invalid answer payload');
       return;
     }
-    const targetSocket = io.sockets.sockets.get(targetId);
-    if (targetSocket && targetSocket.roomId === socket.roomId) {
-      targetSocket.emit('answer', { answer, fromId: socket.id });
-      logEvent('answer', { fromId: socket.id, targetId });
-    }
+    socket.to(roomId).emit('answer', { answer, fromId: socket.id });
+    logEvent('answer', { fromId: socket.id, roomId });
   });
   
   // Handle WebRTC signaling - relay ICE candidates
@@ -226,22 +205,13 @@ io.on('connection', (socket) => {
       socket.emit('error', validation.error);
       return;
     }
-    const { targetId, candidate } = data || {};
-    if (!targetId || !candidate) {
-      const roomId = socket.roomId;
-      if (roomId && candidate) {
-        socket.to(roomId).emit('ice', { candidate, fromId: socket.id });
-        logEvent('ice', { fromId: socket.id, roomId });
-      } else {
-        socket.emit('error', 'Invalid ICE payload');
-      }
+    const { roomId, candidate } = data || {};
+    if (!roomId || !candidate) {
+      socket.emit('error', 'Invalid ICE payload');
       return;
     }
-    const targetSocket = io.sockets.sockets.get(targetId);
-    if (targetSocket && targetSocket.roomId === socket.roomId) {
-      targetSocket.emit('ice', { candidate, fromId: socket.id });
-      logEvent('ice', { fromId: socket.id, targetId });
-    }
+    socket.to(roomId).emit('ice', { candidate, fromId: socket.id });
+    logEvent('ice', { fromId: socket.id, roomId });
   });
   
   // Handle disconnect - auto-cleanup
@@ -261,8 +231,8 @@ io.on('connection', (socket) => {
           viewer.disconnect();
         });
         
-        // Delete room
         delete rooms[socket.roomId];
+        activeRooms.delete(socket.roomId);
       } else {
         // Viewer disconnected - remove from room
         const viewerIndex = room.viewers.indexOf(socket);
