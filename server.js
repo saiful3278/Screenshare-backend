@@ -4,30 +4,13 @@ const { Server } = require('socket.io');
 
 const app = express();
 
-const allowedOrigins = [
-  "http://localhost:3000",
-  "https://saiful3278.github.io"
-];
-const isAllowedOrigin = (origin) => {
-  if (!origin) return true;
-  if (allowedOrigins.includes(origin)) return true;
-  if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return true;
-  if (/^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin)) return true;
-  return false;
-};
 
 // HTTP server for development (use HTTPS in production)
 const server = createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: (origin, callback) => {
-      if (isAllowedOrigin(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
+    origin: "*",
     methods: ["GET", "POST"]
   },
   transports: ['websocket', 'polling']
@@ -218,5 +201,5 @@ const PORT = process.env.PORT || 3001;
 
 server.listen(PORT, () => {
   console.log(`Signaling server running on port ${PORT}`);
-  console.log('CORS whitelist enabled');
+  console.log('CORS any origin enabled');
 });
